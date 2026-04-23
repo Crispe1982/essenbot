@@ -9,9 +9,9 @@ app.use(express.json());
 // ==========================================
 const CONFIG = {
   VERIFY_TOKEN: 'essenbot_verify_2026',
-  ACCESS_TOKEN: process.env.ACCESS_TOKEN,
-  APP_SECRET: process.env.APP_SECRET,
-  IG_ACCOUNT_ID: process.env.IG_ACCOUNT_ID,
+  ACCESS_TOKEN: process.env.ACCESS_TOKEN || process.env.TOKEN_DE_ACCESO,
+  APP_SECRET: process.env.APP_SECRET || process.env.APP_SECRET,
+  IG_ACCOUNT_ID: process.env.IG_ACCOUNT_ID || process.env.ID_DE_CUENTA_IG,
 };
 
 // ==========================================
@@ -177,6 +177,33 @@ app.post('/webhook', async (req, res) => {
 // ==========================================
 app.get('/', (req, res) => {
   res.send('🤖 EssenBot activo y funcionando!');
+});
+
+// ==========================================
+// POLÍTICA DE PRIVACIDAD
+// ==========================================
+app.get('/privacy', (req, res) => {
+  res.send(`
+    <html>
+    <head><meta charset="UTF-8"><title>Política de Privacidad - EssenBot</title>
+    <style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:20px;color:#333;}h1{color:#1a1a1a;}h2{color:#444;}</style>
+    </head>
+    <body>
+      <h1>Política de Privacidad - EssenBot</h1>
+      <p><strong>Última actualización:</strong> 22 de abril de 2026</p>
+      <h2>1. Información que recopilamos</h2>
+      <p>EssenBot recopila únicamente el nombre de usuario y mensajes enviados a través de Instagram y WhatsApp con el fin de brindar atención al cliente para Mi Emprendimiento Essen.</p>
+      <h2>2. Uso de la información</h2>
+      <p>La información recopilada se utiliza exclusivamente para responder consultas sobre productos Essen y mejorar la atención al cliente. No compartimos datos con terceros.</p>
+      <h2>3. Almacenamiento</h2>
+      <p>Los datos de conversación no son almacenados de forma permanente. Solo se procesan en tiempo real para generar respuestas automáticas.</p>
+      <h2>4. Contacto</h2>
+      <p>Para consultas sobre privacidad contactanos en: <a href="mailto:crispe.digital@gmail.com">crispe.digital@gmail.com</a></p>
+      <h2>5. Derechos del usuario</h2>
+      <p>Los usuarios pueden solicitar la eliminación de sus datos en cualquier momento contactando al correo indicado.</p>
+    </body>
+    </html>
+  `);
 });
 
 // ==========================================
