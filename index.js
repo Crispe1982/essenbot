@@ -9,7 +9,6 @@ const CONFIG = {
   ACCESS_TOKEN: process.env.ACCESS_TOKEN || process.env.TOKEN_DE_ACCESO,
   APP_SECRET: process.env.APP_SECRET,
   IG_ACCOUNT_ID: process.env.IG_ACCOUNT_ID || process.env.ID_DE_CUENTA_IG,
-  // ✅ SOLO actuar en este post específico
   POST_ID_PERMITIDO: process.env.POST_ID || 'DVzhIiGjP3O',
 };
 
@@ -43,38 +42,6 @@ async function getNombreUsuario(userId) {
   } catch (e) { return ''; }
 }
 
-// ✅ VERIFICAR SI EL COMENTARIO ES DEL POST PERMITIDO
-async function esPostPermitido(commentId) {
-  try {
-    const res = await axios.get(`https://graph.instagram.com/v21.0/${commentId}`, {
-      params: { fields: 'media', access_token: CONFIG.ACCESS_TOKEN }
-    });
-    const mediaId = res.data.media?.id || '';
-    // Verificar si el media_id corresponde al post permitido
-    const mediaRes = await axios.get(`https://graph.instagram.com/v21.0/${mediaId}`, {
-      params: { fields: 'shortcode', access_token: CONFIG.ACCESS_TOKEN }
-    });
-    const shortcode = mediaRes.data.shortcode || '';
-    const permitido = shortcode === CONFIG.POST_ID_PERMITIDO;
-    console.log(`📌 Post shortcode: ${shortcode} | Permitido: ${permitido}`);
-    return permitido;
-  } catch (e) {
-    console.error('❌ Error verificando post:', e.response?.data || e.message);
-    return false;
-  }
-}
-
-async function darLikeComentario(commentId) {
-  try {
-    await axios.post(`https://graph.instagram.com/v21.0/${commentId}/likes`, {
-      access_token: CONFIG.ACCESS_TOKEN
-    });
-    console.log('❤️ Like dado al comentario');
-  } catch (e) {
-    console.error('❌ Error dando like:', e.response?.data || e.message);
-  }
-}
-
 async function responderComentarioPublico(commentId, nombre) {
   const mensaje = nombre
     ? `¡Hola ${nombre}! Te enviamos un mensaje privado 🤗`
@@ -84,7 +51,7 @@ async function responderComentarioPublico(commentId, nombre) {
       message: mensaje,
       access_token: CONFIG.ACCESS_TOKEN
     });
-    console.log(`✅ Respuesta pública enviada: ${mensaje}`);
+    console.log(`✅ Respuesta pública enviada a ${nombre || 'usuario'}`);
   } catch (e) {
     console.error('❌ Error en respuesta pública:', e.response?.data || e.message);
   }
@@ -100,7 +67,7 @@ async function enviarPrivateReply(commentId, nombre) {
       message: { text: mensaje },
       access_token: CONFIG.ACCESS_TOKEN
     });
-    console.log(`✅ Private Reply enviado al comentario ${commentId}`);
+    console.log(`✅ Private Reply enviado`);
   } catch (e) {
     console.error('❌ Error en Private Reply:', e.response?.data || e.message);
   }
@@ -147,27 +114,29 @@ app.post('/webhook', async (req, res) => {
 
   for (const entry of body.entry || []) {
 
-    // --- ESCENARIO 1: Comentario en post ---
     for (const change of entry.changes || []) {
       if (change.field === 'comments') {
         const comentario = change.value;
         const texto = comentario.text || '';
         const userId = comentario.from?.id;
         const commentId = comentario.id;
+        const mediaShortcode = comentario.media?.shortcode || '';
 
-        if (contieneKeyword(texto) && userId) {
-          console.log(`💬 Comentario detectado de ${userId}: "${texto}"`);
+        // 🚫 IGNORAR comentarios de la propia cuenta
+        if (userId === CONFIG.IG_ACCOUNT_ID) {
+          console.log(`⛔ Comentario propio ignorado`);
+          continue;
+        }
 
-          // ✅ VERIFICAR QUE SEA EL POST PERMITIDO
-          const permitido = await esPostPermitido(commentId);
-          if (!permitido) {
-            console.log(`⛔ Comentario ignorado — no es el post de la campaña`);
-            continue;
-          }
+        // 🚫 IGNORAR si no es el post de la campaña
+        if (mediaShortcode && mediaShortcode !== CONFIG.POST_ID_PERMITIDO) {
+          console.log(`⛔ Post ignorado: ${mediaShortcode}`);
+          continue;
+        }
 
+        if (contieneKeyword(texto)) {
+          console.log(`💬 Keyword detectada de ${userId}: "${texto}"`);
           const nombre = await getNombreUsuario(userId);
-          await darLikeComentario(commentId);
-          await new Promise(r => setTimeout(r, 500));
           await responderComentarioPublico(commentId, nombre);
           await new Promise(r => setTimeout(r, 1000));
           await enviarPrivateReply(commentId, nombre);
@@ -175,7 +144,6 @@ app.post('/webhook', async (req, res) => {
       }
     }
 
-    // --- ESCENARIO 3: DM directo ---
     for (const messaging of entry.messaging || []) {
       const senderId = messaging.sender?.id;
       if (senderId === CONFIG.IG_ACCOUNT_ID) continue;
@@ -188,11 +156,11 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => res.send('🤖 EssenBot v4 activo y funcionando!'));
+app.get('/', (req, res) => res.send('🤖 EssenBot v5 activo!'));
 
 app.get('/privacy', (req, res) => {
-  res.send(`<html><head><meta charset="UTF-8"><title>Política de Privacidad - EssenBot</title><style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:20px;}</style></head><body><h1>Política de Privacidad - EssenBot</h1><p>EssenBot recopila únicamente nombre de usuario y mensajes para brindar atención al cliente de Mi Emprendimiento Essen. No compartimos datos con terceros. Contacto: crispe.digital@gmail.com</p></body></html>`);
+  res.send(`<html><head><meta charset="UTF-8"><title>Política de Privacidad - EssenBot</title></head><body><h1>Política de Privacidad - EssenBot</h1><p>EssenBot recopila únicamente nombre de usuario y mensajes para brindar atención al cliente de Mi Emprendimiento Essen. No compartimos datos con terceros. Contacto: crispe.digital@gmail.com</p></body></html>`);
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 EssenBot v4 corriendo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 EssenBot v5 corriendo en puerto ${PORT}`));
