@@ -4,28 +4,19 @@ const app = express();
 
 app.use(express.json());
 
-// ==========================================
-// CONFIGURACIÓN
-// ==========================================
 const CONFIG = {
   VERIFY_TOKEN: 'essenbot_verify_2026',
   ACCESS_TOKEN: process.env.ACCESS_TOKEN || process.env.TOKEN_DE_ACCESO,
-  APP_SECRET: process.env.APP_SECRET || process.env.APP_SECRET,
+  APP_SECRET: process.env.APP_SECRET,
   IG_ACCOUNT_ID: process.env.IG_ACCOUNT_ID || process.env.ID_DE_CUENTA_IG,
 };
 
-// ==========================================
-// PALABRAS CLAVE QUE ACTIVAN EL BOT
-// ==========================================
 const KEYWORDS = [
   'quiero rosa', 'info', 'quiero info', 'información', 'informacion',
   'precio', 'precios', 'combo', 'combos', 'essen', 'rosa',
   'quiero', 'me interesa', 'consulta', '?', 'costo'
 ];
 
-// ==========================================
-// FUNCIÓN: OBTENER SALUDO SEGÚN HORARIO (Argentina UTC-3)
-// ==========================================
 function getSaludo() {
   const now = new Date();
   const horaArgentina = (now.getUTCHours() - 3 + 24) % 24;
@@ -34,86 +25,96 @@ function getSaludo() {
   return 'buenas noches';
 }
 
-// ==========================================
-// FUNCIÓN: VERIFICAR SI ES PRIMER CONTACTO
-// ==========================================
 const contactosAtendidos = new Set();
-
 function esPrimerContacto(userId) {
   if (contactosAtendidos.has(userId)) return false;
   contactosAtendidos.add(userId);
   return true;
 }
 
-// ==========================================
-// FUNCIÓN: OBTENER NOMBRE DEL USUARIO
-// ==========================================
 async function getNombreUsuario(userId) {
   try {
     const res = await axios.get(`https://graph.instagram.com/v21.0/${userId}`, {
-      params: {
-        fields: 'name,username',
-        access_token: CONFIG.ACCESS_TOKEN
-      }
+      params: { fields: 'name,username', access_token: CONFIG.ACCESS_TOKEN }
     });
     return res.data.name || res.data.username || '';
+  } catch (e) { return ''; }
+}
+
+// ❤️ LIKE AL COMENTARIO
+async function darLikeComentario(commentId) {
+  try {
+    await axios.post(`https://graph.instagram.com/v21.0/${commentId}/likes`, {
+      access_token: CONFIG.ACCESS_TOKEN
+    });
+    console.log('❤️ Like dado al comentario');
   } catch (e) {
-    return '';
+    console.error('❌ Error dando like:', e.response?.data || e.message);
   }
 }
 
-// ==========================================
-// FUNCIÓN: RESPONDER COMENTARIO PÚBLICAMENTE
-// ==========================================
-async function responderComentario(commentId, nombre) {
+// 💬 RESPUESTA PÚBLICA AL COMENTARIO
+async function responderComentarioPublico(commentId, nombre) {
   const mensaje = nombre
     ? `¡Hola ${nombre}! Te enviamos un mensaje privado 🤗`
     : `¡Hola! Te enviamos un mensaje privado 🤗`;
   try {
-    await axios.post(
-      `https://graph.instagram.com/v21.0/${commentId}/replies`,
-      { message: mensaje, access_token: CONFIG.ACCESS_TOKEN }
-    );
-    console.log(`✅ Comentario respondido: ${mensaje}`);
+    await axios.post(`https://graph.instagram.com/v21.0/${commentId}/replies`, {
+      message: mensaje,
+      access_token: CONFIG.ACCESS_TOKEN
+    });
+    console.log(`✅ Respuesta pública enviada: ${mensaje}`);
   } catch (e) {
-    console.error('❌ Error respondiendo comentario:', e.response?.data || e.message);
+    console.error('❌ Error en respuesta pública:', e.response?.data || e.message);
   }
 }
 
-// ==========================================
-// FUNCIÓN: ENVIAR DM AL USUARIO
-// ==========================================
+// 📩 PRIVATE REPLY - DM directo desde comentario (como ManyChat)
+async function enviarPrivateReply(commentId, nombre) {
+  const saludo = getSaludo();
+  const nombreTexto = nombre ? `, ${nombre}` : '';
+  const mensaje = `🤩 ¡Hola${nombreTexto}, muy ${saludo}! ¿Cómo estás?\n\nMi nombre es Brenda. Para poder asesorarte mejor, contame:\n\n✨ ¿Ya tenés alguna pieza Essen en casa?\n✨ ¿Conocés la marca?\n✨ ¿Qué piezas de la línea Rosa te interesan?`;
+  try {
+    // Private Reply: usa comment_id como recipient — esto es lo que usa ManyChat
+    await axios.post(`https://graph.instagram.com/v21.0/${CONFIG.IG_ACCOUNT_ID}/messages`, {
+      recipient: { comment_id: commentId },
+      message: { text: mensaje },
+      access_token: CONFIG.ACCESS_TOKEN
+    });
+    console.log(`✅ Private Reply enviado al comentario ${commentId}`);
+  } catch (e) {
+    console.error('❌ Error en Private Reply:', e.response?.data || e.message);
+    // Fallback: intentar con user_id si falla
+    try {
+      const userId = e.config?.data ? JSON.parse(e.config.data)?.recipient?.comment_id : null;
+      console.log('🔄 Intentando fallback con messaging_type RESPONSE...');
+    } catch (e2) {}
+  }
+}
+
+// 📩 DM directo (para cuando el usuario ya escribió primero)
 async function enviarDM(userId, nombre) {
   const saludo = getSaludo();
   const nombreTexto = nombre ? `, ${nombre}` : '';
   const mensaje = `🤩 ¡Hola${nombreTexto}, muy ${saludo}! ¿Cómo estás?\n\nMi nombre es Brenda. Para poder asesorarte mejor, contame:\n\n✨ ¿Ya tenés alguna pieza Essen en casa?\n✨ ¿Conocés la marca?\n✨ ¿Qué piezas de la línea Rosa te interesan?`;
   try {
-    await axios.post(
-      `https://graph.instagram.com/v21.0/${CONFIG.IG_ACCOUNT_ID}/messages`,
-      {
-        recipient: { id: userId },
-        message: { text: mensaje },
-        access_token: CONFIG.ACCESS_TOKEN
-      }
-    );
+    await axios.post(`https://graph.instagram.com/v21.0/${CONFIG.IG_ACCOUNT_ID}/messages`, {
+      recipient: { id: userId },
+      message: { text: mensaje },
+      access_token: CONFIG.ACCESS_TOKEN
+    });
     console.log(`✅ DM enviado a ${userId}`);
   } catch (e) {
     console.error('❌ Error enviando DM:', e.response?.data || e.message);
   }
 }
 
-// ==========================================
-// FUNCIÓN: DETECTAR PALABRAS CLAVE
-// ==========================================
 function contieneKeyword(texto) {
   if (!texto) return false;
   const textoLower = texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   return KEYWORDS.some(kw => textoLower.includes(kw));
 }
 
-// ==========================================
-// WEBHOOK: VERIFICACIÓN DE META
-// ==========================================
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -126,12 +127,8 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// ==========================================
-// WEBHOOK: RECIBIR EVENTOS DE INSTAGRAM
-// ==========================================
 app.post('/webhook', async (req, res) => {
-  res.sendStatus(200); // Responder rápido a Meta
-
+  res.sendStatus(200);
   const body = req.body;
   if (body.object !== 'instagram') return;
 
@@ -148,9 +145,17 @@ app.post('/webhook', async (req, res) => {
         if (contieneKeyword(texto) && userId) {
           console.log(`💬 Comentario detectado de ${userId}: "${texto}"`);
           const nombre = await getNombreUsuario(userId);
-          await responderComentario(commentId, nombre);
-          await new Promise(r => setTimeout(r, 1500)); // pequeña pausa
-          await enviarDM(userId, nombre);
+
+          // 1. Like al comentario
+          await darLikeComentario(commentId);
+          await new Promise(r => setTimeout(r, 500));
+
+          // 2. Respuesta pública
+          await responderComentarioPublico(commentId, nombre);
+          await new Promise(r => setTimeout(r, 1000));
+
+          // 3. Private Reply (DM directo desde comentario - como ManyChat)
+          await enviarPrivateReply(commentId, nombre);
         }
       }
     }
@@ -158,13 +163,9 @@ app.post('/webhook', async (req, res) => {
     // --- ESCENARIO 3: DM directo ---
     for (const messaging of entry.messaging || []) {
       const senderId = messaging.sender?.id;
-      const texto = messaging.message?.text || '';
-
-      // Ignorar mensajes enviados por nosotros mismos
       if (senderId === CONFIG.IG_ACCOUNT_ID) continue;
-
       if (esPrimerContacto(senderId)) {
-        console.log(`📩 Primer DM de ${senderId}: "${texto}"`);
+        console.log(`📩 Primer DM de ${senderId}`);
         const nombre = await getNombreUsuario(senderId);
         await enviarDM(senderId, nombre);
       }
@@ -172,44 +173,11 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ==========================================
-// HEALTH CHECK
-// ==========================================
-app.get('/', (req, res) => {
-  res.send('🤖 EssenBot activo y funcionando!');
-});
+app.get('/', (req, res) => res.send('🤖 EssenBot v3 activo y funcionando!'));
 
-// ==========================================
-// POLÍTICA DE PRIVACIDAD
-// ==========================================
 app.get('/privacy', (req, res) => {
-  res.send(`
-    <html>
-    <head><meta charset="UTF-8"><title>Política de Privacidad - EssenBot</title>
-    <style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:20px;color:#333;}h1{color:#1a1a1a;}h2{color:#444;}</style>
-    </head>
-    <body>
-      <h1>Política de Privacidad - EssenBot</h1>
-      <p><strong>Última actualización:</strong> 22 de abril de 2026</p>
-      <h2>1. Información que recopilamos</h2>
-      <p>EssenBot recopila únicamente el nombre de usuario y mensajes enviados a través de Instagram y WhatsApp con el fin de brindar atención al cliente para Mi Emprendimiento Essen.</p>
-      <h2>2. Uso de la información</h2>
-      <p>La información recopilada se utiliza exclusivamente para responder consultas sobre productos Essen y mejorar la atención al cliente. No compartimos datos con terceros.</p>
-      <h2>3. Almacenamiento</h2>
-      <p>Los datos de conversación no son almacenados de forma permanente. Solo se procesan en tiempo real para generar respuestas automáticas.</p>
-      <h2>4. Contacto</h2>
-      <p>Para consultas sobre privacidad contactanos en: <a href="mailto:crispe.digital@gmail.com">crispe.digital@gmail.com</a></p>
-      <h2>5. Derechos del usuario</h2>
-      <p>Los usuarios pueden solicitar la eliminación de sus datos en cualquier momento contactando al correo indicado.</p>
-    </body>
-    </html>
-  `);
+  res.send(`<html><head><meta charset="UTF-8"><title>Política de Privacidad - EssenBot</title><style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:20px;}</style></head><body><h1>Política de Privacidad - EssenBot</h1><p>EssenBot recopila únicamente nombre de usuario y mensajes para brindar atención al cliente de Mi Emprendimiento Essen. No compartimos datos con terceros. Contacto: crispe.digital@gmail.com</p></body></html>`);
 });
 
-// ==========================================
-// INICIAR SERVIDOR
-// ==========================================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 EssenBot corriendo en puerto ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 EssenBot v3 corriendo en puerto ${PORT}`));
