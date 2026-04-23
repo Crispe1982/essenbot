@@ -9,6 +9,8 @@ const CONFIG = {
   ACCESS_TOKEN: process.env.ACCESS_TOKEN || process.env.TOKEN_DE_ACCESO,
   APP_SECRET: process.env.APP_SECRET,
   IG_ACCOUNT_ID: process.env.IG_ACCOUNT_ID || process.env.ID_DE_CUENTA_IG,
+  // ✅ SOLO actuar en este post específico
+  POST_ID_PERMITIDO: process.env.POST_ID || 'DVzhIiGjP3O',
 };
 
 const KEYWORDS = [
@@ -41,7 +43,27 @@ async function getNombreUsuario(userId) {
   } catch (e) { return ''; }
 }
 
-// ❤️ LIKE AL COMENTARIO
+// ✅ VERIFICAR SI EL COMENTARIO ES DEL POST PERMITIDO
+async function esPostPermitido(commentId) {
+  try {
+    const res = await axios.get(`https://graph.instagram.com/v21.0/${commentId}`, {
+      params: { fields: 'media', access_token: CONFIG.ACCESS_TOKEN }
+    });
+    const mediaId = res.data.media?.id || '';
+    // Verificar si el media_id corresponde al post permitido
+    const mediaRes = await axios.get(`https://graph.instagram.com/v21.0/${mediaId}`, {
+      params: { fields: 'shortcode', access_token: CONFIG.ACCESS_TOKEN }
+    });
+    const shortcode = mediaRes.data.shortcode || '';
+    const permitido = shortcode === CONFIG.POST_ID_PERMITIDO;
+    console.log(`📌 Post shortcode: ${shortcode} | Permitido: ${permitido}`);
+    return permitido;
+  } catch (e) {
+    console.error('❌ Error verificando post:', e.response?.data || e.message);
+    return false;
+  }
+}
+
 async function darLikeComentario(commentId) {
   try {
     await axios.post(`https://graph.instagram.com/v21.0/${commentId}/likes`, {
@@ -53,7 +75,6 @@ async function darLikeComentario(commentId) {
   }
 }
 
-// 💬 RESPUESTA PÚBLICA AL COMENTARIO
 async function responderComentarioPublico(commentId, nombre) {
   const mensaje = nombre
     ? `¡Hola ${nombre}! Te enviamos un mensaje privado 🤗`
@@ -69,13 +90,11 @@ async function responderComentarioPublico(commentId, nombre) {
   }
 }
 
-// 📩 PRIVATE REPLY - DM directo desde comentario (como ManyChat)
 async function enviarPrivateReply(commentId, nombre) {
   const saludo = getSaludo();
   const nombreTexto = nombre ? `, ${nombre}` : '';
   const mensaje = `🤩 ¡Hola${nombreTexto}, muy ${saludo}! ¿Cómo estás?\n\nMi nombre es Brenda. Para poder asesorarte mejor, contame:\n\n✨ ¿Ya tenés alguna pieza Essen en casa?\n✨ ¿Conocés la marca?\n✨ ¿Qué piezas de la línea Rosa te interesan?`;
   try {
-    // Private Reply: usa comment_id como recipient — esto es lo que usa ManyChat
     await axios.post(`https://graph.instagram.com/v21.0/${CONFIG.IG_ACCOUNT_ID}/messages`, {
       recipient: { comment_id: commentId },
       message: { text: mensaje },
@@ -84,15 +103,9 @@ async function enviarPrivateReply(commentId, nombre) {
     console.log(`✅ Private Reply enviado al comentario ${commentId}`);
   } catch (e) {
     console.error('❌ Error en Private Reply:', e.response?.data || e.message);
-    // Fallback: intentar con user_id si falla
-    try {
-      const userId = e.config?.data ? JSON.parse(e.config.data)?.recipient?.comment_id : null;
-      console.log('🔄 Intentando fallback con messaging_type RESPONSE...');
-    } catch (e2) {}
   }
 }
 
-// 📩 DM directo (para cuando el usuario ya escribió primero)
 async function enviarDM(userId, nombre) {
   const saludo = getSaludo();
   const nombreTexto = nombre ? `, ${nombre}` : '';
@@ -144,17 +157,19 @@ app.post('/webhook', async (req, res) => {
 
         if (contieneKeyword(texto) && userId) {
           console.log(`💬 Comentario detectado de ${userId}: "${texto}"`);
-          const nombre = await getNombreUsuario(userId);
 
-          // 1. Like al comentario
+          // ✅ VERIFICAR QUE SEA EL POST PERMITIDO
+          const permitido = await esPostPermitido(commentId);
+          if (!permitido) {
+            console.log(`⛔ Comentario ignorado — no es el post de la campaña`);
+            continue;
+          }
+
+          const nombre = await getNombreUsuario(userId);
           await darLikeComentario(commentId);
           await new Promise(r => setTimeout(r, 500));
-
-          // 2. Respuesta pública
           await responderComentarioPublico(commentId, nombre);
           await new Promise(r => setTimeout(r, 1000));
-
-          // 3. Private Reply (DM directo desde comentario - como ManyChat)
           await enviarPrivateReply(commentId, nombre);
         }
       }
@@ -173,11 +188,11 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => res.send('🤖 EssenBot v3 activo y funcionando!'));
+app.get('/', (req, res) => res.send('🤖 EssenBot v4 activo y funcionando!'));
 
 app.get('/privacy', (req, res) => {
   res.send(`<html><head><meta charset="UTF-8"><title>Política de Privacidad - EssenBot</title><style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:20px;}</style></head><body><h1>Política de Privacidad - EssenBot</h1><p>EssenBot recopila únicamente nombre de usuario y mensajes para brindar atención al cliente de Mi Emprendimiento Essen. No compartimos datos con terceros. Contacto: crispe.digital@gmail.com</p></body></html>`);
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 EssenBot v3 corriendo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 EssenBot v4 corriendo en puerto ${PORT}`));
