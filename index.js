@@ -44,8 +44,8 @@ async function getNombreUsuario(userId) {
 
 async function responderComentarioPublico(commentId, nombre) {
   const mensaje = nombre
-    ? `¡Hola ${nombre}! Te enviamos un mensaje privado 🤗`
-    : `¡Hola! Te enviamos un mensaje privado 🤗`;
+    ? `¡Hola ${nombre}! 👋 Te enviamos mensaje 🤗`
+    : `¡Hola! 👋 Te enviamos mensaje 🤗`;
   try {
     await axios.post(`https://graph.instagram.com/v21.0/${commentId}/replies`, {
       message: mensaje,
